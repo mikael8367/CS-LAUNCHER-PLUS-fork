@@ -58,8 +58,12 @@ public final class SchedulingPolicy {
     private final Handler handler;
     /** Every live TID is inspected once, not once per second. */
     private final Set<Integer> scanned = new HashSet<>();
+    /** Reused between scans so the 1 Hz heartbeat does not allocate a new set. */
+    private final Set<Integer> liveTids = new HashSet<>();
     /** Only TIDs whose priorities were actually raised are kept here. */
     private final Set<Integer> touched = new HashSet<>();
+    private long lastThreadScanAt;
+    private static final long THREAD_RESCAN_MS = 5_000L;
     private final List<Runnable> tickListeners = new ArrayList<>();
 
     private volatile boolean shedByThermal;
@@ -167,8 +171,13 @@ public final class SchedulingPolicy {
 
     private final Runnable tick = new Runnable() {
         @Override public void run() {
-            scanThreads();
-            refreshHintSession();
+            // Discover late-created game threads every second during startup, then back off
+            // to a 5-second liveness scan once the render/client thread has been found.
+            if (touched.isEmpty()
+                    || System.currentTimeMillis() - lastThreadScanAt >= THREAD_RESCAN_MS) {
+                scanThreads();
+                refreshHintSession();
+            }
             List<Runnable> copy;
             synchronized (tickListeners) {
                 copy = new ArrayList<>(tickListeners);
@@ -192,19 +201,21 @@ public final class SchedulingPolicy {
      */
     private void scanThreads() {
         try {
-            File[] tasks = new File("/proc/self/task").listFiles();
+            String[] tasks = new File("/proc/self/task").list();
             if (tasks == null) return;
+            lastThreadScanAt = System.currentTimeMillis();
 
-            // Keep only IDs that still exist. This also handles TID reuse after a thread exits.
-            Set<Integer> live = new HashSet<>(tasks.length);
-            for (File task : tasks) {
+            // Reuse the same set and string directory listing, rather than creating a File
+            // object for every thread and a fresh HashSet on every scan.
+            liveTids.clear();
+            for (String taskName : tasks) {
                 int tid;
                 try {
-                    tid = Integer.parseInt(task.getName());
+                    tid = Integer.parseInt(taskName);
                 } catch (NumberFormatException ignored) {
                     continue;
                 }
-                live.add(tid);
+                liveTids.add(tid);
                 if (scanned.contains(tid)) continue;
 
                 String name = readComm(tid);
@@ -214,8 +225,8 @@ public final class SchedulingPolicy {
 
                 if (applyPriority(tid)) touched.add(tid);
             }
-            scanned.retainAll(live);
-            touched.retainAll(live);
+            scanned.retainAll(liveTids);
+            touched.retainAll(liveTids);
         } catch (Throwable ignored) {
             // /proc/self/task is readable for our own process, but OEM kernels occasionally deny it.
         }
