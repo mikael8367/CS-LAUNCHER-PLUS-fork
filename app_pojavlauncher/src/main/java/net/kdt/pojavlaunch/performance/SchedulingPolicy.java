@@ -140,7 +140,7 @@ public final class SchedulingPolicy {
         synchronized (s.tickListenerLock) {
             Runnable[] current = s.tickListeners;
             for (Runnable listener : current) {
-                if (listener == r) return;
+                if (r.equals(listener)) return;
             }
             Runnable[] next = java.util.Arrays.copyOf(current, current.length + 1);
             next[current.length] = r;
@@ -155,7 +155,7 @@ public final class SchedulingPolicy {
             Runnable[] current = s.tickListeners;
             int removeAt = -1;
             for (int i = 0; i < current.length; i++) {
-                if (current[i] == r) {
+                if (r.equals(current[i])) {
                     removeAt = i;
                     break;
                 }
