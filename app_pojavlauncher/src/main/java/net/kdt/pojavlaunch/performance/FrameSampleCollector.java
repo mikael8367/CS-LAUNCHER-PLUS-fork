@@ -7,9 +7,7 @@ import android.os.Process;
 
 import net.kdt.pojavlaunch.utils.FpsCounter;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import java.util.Arrays;
 import java.util.Locale;
 
 /**
@@ -47,7 +45,10 @@ public final class FrameSampleCollector {
         final String rendererId;
         final String modeKey;
         final String versionId;
-        final List<Integer> samples = new ArrayList<>();
+        // Primitive circular buffer: avoids thousands of boxed Integer allocations during long sessions.
+        final int[] samples = new int[WINDOW_SECONDS];
+        int sampleCount;
+        int nextSampleIndex;
         long lastPresents = -1L;
         long lastSampleAt;
 
@@ -111,12 +112,13 @@ public final class FrameSampleCollector {
     public static int liveMedianFps() {
         Session s = sSession;
         if (s == null) return -1;
+        int[] copy;
         synchronized (s.samples) {
-            if (s.samples.isEmpty()) return -1;
-            List<Integer> copy = new ArrayList<>(s.samples);
-            Collections.sort(copy);
-            return copy.get(copy.size() / 2);
+            if (s.sampleCount == 0) return -1;
+            copy = Arrays.copyOf(s.samples, s.sampleCount);
         }
+        Arrays.sort(copy);
+        return copy[copy.length / 2];
     }
 
     private static final Runnable tick = new Runnable() {
@@ -140,8 +142,9 @@ public final class FrameSampleCollector {
                 int fps = (int) Math.min(1000L, (delta * 1000L) / elapsed);
                 if (fps >= MIN_VALID_FPS) {
                     synchronized (s.samples) {
-                        s.samples.add(fps);
-                        while (s.samples.size() > WINDOW_SECONDS) s.samples.remove(0);
+                        s.samples[s.nextSampleIndex] = fps;
+                        s.nextSampleIndex = (s.nextSampleIndex + 1) % WINDOW_SECONDS;
+                        if (s.sampleCount < WINDOW_SECONDS) s.sampleCount++;
                     }
                     if (s.traceForHarness) {
                         android.util.Log.d(HARNESS_TAG, "t=" + ((now - s.startedAt) / 1000L)
@@ -157,14 +160,14 @@ public final class FrameSampleCollector {
 
     private static void persist(Context ctx, Session s) {
         if (ctx == null) return;
-        List<Integer> copy;
+        int[] copy;
         synchronized (s.samples) {
-            copy = new ArrayList<>(s.samples);
+            if (s.sampleCount < 10) return;
+            copy = Arrays.copyOf(s.samples, s.sampleCount);
         }
-        if (copy.size() < 10) return;
-        Collections.sort(copy);
-        int median = copy.get(copy.size() / 2);
-        int worst = copy.get(0); // lowest 1-second window: a stutter proxy, honestly labelled
+        Arrays.sort(copy);
+        int median = copy[copy.length / 2];
+        int worst = copy[0]; // lowest 1-second window: a stutter proxy, honestly labelled
         float medianFrameMs = median > 0 ? 1000f / median : 0f;
         long duration = System.currentTimeMillis() - s.startedAt;
         SessionStats.append(ctx, new SessionStats.Entry(s.startedAt, s.rendererId, s.modeKey, s.versionId,
@@ -172,6 +175,6 @@ public final class FrameSampleCollector {
         android.util.Log.i("CSPerf", "session measured (" + s.modeKey + ", " + s.rendererId + ", "
                 + s.versionId + "): median " + median + " fps, worst second " + worst + " fps, "
                 + String.format(Locale.ROOT, "%.1f ms/frame, %d samples, %ds",
-                medianFrameMs, copy.size(), duration / 1000L));
+                medianFrameMs, copy.length, duration / 1000L));
     }
 }
