@@ -47,8 +47,11 @@ import net.kdt.pojavlaunch.utils.animation.MotionSpec;
  */
 public class ControlFps extends ControlButton {
 
-    /** Matches the launch HUD's cadence: live, but never jittery. */
-    private static final long TICK_INTERVAL_MS = 400L;
+    /**
+     * The HUD is informational; one update per second avoids repeated text layout,
+     * Spannable and animation allocations while the game is rendering.
+     */
+    private static final long TICK_INTERVAL_MS = 1000L;
     /** Presentation-only smoothing of real samples (no value is invented). */
     private static final float SMOOTHING = 0.45f;
 
@@ -69,9 +72,7 @@ public class ControlFps extends ControlButton {
         public void run() {
             sample();
             removeCallbacks(this);
-            long interval = net.kdt.pojavlaunch.performance.LauncherQuietPolicy.animationsAllowed()
-                    ? TICK_INTERVAL_MS : 1000L;
-            postDelayed(this, interval);
+            postDelayed(this, TICK_INTERVAL_MS);
         }
     };
 
