@@ -160,7 +160,15 @@ public final class PerformancePolicy {
         // The already-sanitized value the settings UI committed: never re-guess it here.
         int base = LauncherPreferences.PREF_RAM_ALLOCATION > 0 ? LauncherPreferences.PREF_RAM_ALLOCATION : 1024;
         int bias = mode == PerformanceMode.MAXIMUM ? 15 : (mode == PerformanceMode.PERFORMANCE ? 8 : 0);
-        if (!b.experimentalJvmFlags) bias = 0; // heap headroom is not shipped unmeasured
+        boolean memoryConstrained = device.lowMemoryNow
+                || (device.totalRamMb > 0 && device.totalRamMb <= 4096)
+                || (device.availRamMb > 0 && device.availRamMb < 1536);
+        if (!b.experimentalJvmFlags || memoryConstrained) {
+            bias = 0; // never expand the user's heap when Android needs the remaining RAM
+        }
+        if (memoryConstrained && b.experimentalJvmFlags) {
+            b.unavailable.add("automatic heap expansion skipped to preserve Android memory headroom");
+        }
         int wanted = base + (base * bias) / 100;
         int avail = device.availRamMb > 0 ? (int) (device.availRamMb * 0.55f) : Integer.MAX_VALUE;
         b.heapBiasPercent = bias;
