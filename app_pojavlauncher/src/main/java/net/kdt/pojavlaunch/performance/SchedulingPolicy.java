@@ -51,6 +51,8 @@ public final class SchedulingPolicy {
     private static volatile SchedulingPolicy sActive;
 
     private final Context appContext;
+    /** Display captured from the game Activity; the Application context has no display mode. */
+    private final android.view.Display display;
     private final PerformancePolicy policy;
     private final HandlerThread thread;
     private final Handler handler;
@@ -69,6 +71,14 @@ public final class SchedulingPolicy {
 
     private SchedulingPolicy(Context ctx, PerformancePolicy policy) {
         this.appContext = ctx.getApplicationContext();
+        android.view.Display hostDisplay = null;
+        if (ctx instanceof Activity) {
+            try {
+                hostDisplay = ((Activity) ctx).getWindowManager().getDefaultDisplay();
+            } catch (Throwable ignored) {
+            }
+        }
+        this.display = hostDisplay;
         this.policy = policy;
         this.thread = new HandlerThread("CS-PerfEngine", Process.THREAD_PRIORITY_BACKGROUND);
         this.thread.start();
@@ -335,12 +345,7 @@ public final class SchedulingPolicy {
     private long measureFrameBudgetNanos() {
         float hz = 60f;
         try {
-            android.view.Display d = null;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                d = appContext.getDisplay();
-            } else if (appContext instanceof Activity) {
-                d = ((Activity) appContext).getWindowManager().getDefaultDisplay();
-            }
+            android.view.Display d = display;
             if (d != null) {
                 float best = 0f;
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
