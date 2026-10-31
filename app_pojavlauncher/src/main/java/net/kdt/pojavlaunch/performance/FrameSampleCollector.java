@@ -14,8 +14,8 @@ import java.util.Locale;
  * Measures what a session was actually doing, from the frame counter the launcher already keeps at the
  * GL swap boundary.
  *
- * <p>Runs in the game process while the session is in the foreground, at 1 Hz, on a
- * {@code THREAD_PRIORITY_BACKGROUND} looper. A tick is one native {@code long} read plus arithmetic: no
+ * <p>Runs in the game process while the session is in the foreground, at 1 Hz, reusing the performance
+ * scheduler in boosted modes and using one background looper in Normal mode. A tick is one native {@code long} read plus arithmetic: no
  * file IO, no reflection, no allocation beyond an amortized ring buffer. The purpose is to turn "did
  * this mode help?" into a number the launcher can display and the user can re-measure; accurate
  * percentiles and jank counts remain the job of {@code dumpsys gfxinfo} on a real device, which is what
@@ -65,6 +65,8 @@ public final class FrameSampleCollector {
     private static volatile Session sSession;
     private static HandlerThread sThread;
     private static Handler sHandler;
+    /** Boosted sessions reuse the scheduler heartbeat instead of starting another thread. */
+    private static volatile boolean sUsingSharedHeartbeat;
 
     private FrameSampleCollector() {}
 
@@ -74,6 +76,15 @@ public final class FrameSampleCollector {
         PerformancePolicy policy = PerformancePolicy.current();
         String mode = policy != null ? policy.mode.key : PerformanceMode.NORMAL.key;
         if (sSession == null) sSession = new Session(rendererId, mode, versionId);
+        if (SchedulingPolicy.isActive()) {
+            // Performance/Maximum already own a 1 Hz background scheduler. Reuse it so
+            // frame statistics do not create a second HandlerThread and another stack.
+            sUsingSharedHeartbeat = true;
+            SchedulingPolicy.addTickListener(tick);
+            return;
+        }
+
+        sUsingSharedHeartbeat = false;
         if (sThread == null) {
             sThread = new HandlerThread("CS-FrameStats", Process.THREAD_PRIORITY_BACKGROUND);
             sThread.start();
@@ -85,8 +96,13 @@ public final class FrameSampleCollector {
 
     /** Stop the heartbeat but keep what was measured. */
     public static synchronized void pause() {
-        Handler handler = sHandler;
-        if (handler != null) handler.removeCallbacks(tick);
+        if (sUsingSharedHeartbeat) {
+            SchedulingPolicy.removeTickListener(tick);
+            sUsingSharedHeartbeat = false;
+        } else {
+            Handler handler = sHandler;
+            if (handler != null) handler.removeCallbacks(tick);
+        }
         // The next resume must not count the background gap as one very slow second.
         Session s = sSession;
         if (s != null) s.lastPresents = -1L;
@@ -125,7 +141,7 @@ public final class FrameSampleCollector {
         @Override public void run() {
             sample();
             Handler handler = sHandler;
-            if (handler != null) handler.postDelayed(this, 1000L);
+            if (!sUsingSharedHeartbeat && handler != null) handler.postDelayed(this, 1000L);
         }
     };
 
