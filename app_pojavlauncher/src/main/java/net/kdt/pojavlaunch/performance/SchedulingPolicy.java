@@ -131,6 +131,15 @@ public final class SchedulingPolicy {
     }
 
     /**
+     * Queue lightweight session work on the existing background engine thread.
+     * Returns false when no scheduler owns the current session.
+     */
+    public static boolean postToEngine(Runnable task) {
+        SchedulingPolicy s = sActive;
+        return s != null && task != null && s.handler.post(task);
+    }
+
+    /**
      * Runs on the engine's 1 Hz tick. Used by {@link ThermalGovernor} and
      * {@link FrameSampleCollector} so one thread serves the whole session.
      */
