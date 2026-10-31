@@ -30,13 +30,14 @@ public enum PerformanceMode {
     PERFORMANCE("performance",
             "Higher FPS with increased CPU/GPU usage and moderate heat",
             "Game threads raised to display priority · short GC pauses · launcher goes quiet "
-                    + "while Minecraft is on screen · no sustained-clock cap and no frame-rate limit"),
+                    + "while Minecraft is on screen · internal render scale capped at 85% of the "
+                    + "player's configured scale · no frame-rate limit"),
 
     /** Everything the device can hold, until the thermal API says stop. */
     MAXIMUM("maximum",
             "Maximum safe performance the device will give, for the highest sustainable FPS",
-            "Nothing held back: no FPS cap, no vsync, no sustained-clock request, no resolution or "
-                    + "graphics change · game threads at urgent display priority · ADPF hint session "
+            "No FPS cap, no sustained-clock request · internal render scale capped at 70% of the "
+                    + "player's configured scale · game threads at urgent display priority · ADPF hint session "
                     + "(Android 12+) targeting the display's highest refresh rate · JVM tuned per device · "
                     + "launcher fully quiet · the only limiter left is the device's own thermal report, "
                     + "which sheds boost when it says severe throttling");
