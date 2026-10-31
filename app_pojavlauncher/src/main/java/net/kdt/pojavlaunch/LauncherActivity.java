@@ -669,7 +669,11 @@ public class LauncherActivity extends BaseActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        
+
+        // Build/cache the device capability snapshot while the launcher is open, before
+        // the separate :game process marks a session active and suppresses EGL probing.
+        net.kdt.pojavlaunch.performance.DeviceCapability.ensureAsync(this);
+
         // Edge-to-edge setup
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             Window window = getWindow();
