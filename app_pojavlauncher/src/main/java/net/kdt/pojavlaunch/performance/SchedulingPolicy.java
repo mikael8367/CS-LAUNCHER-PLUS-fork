@@ -43,8 +43,9 @@ public final class SchedulingPolicy {
 
     /** Thread names worth boosting on a Minecraft client; matched case-insensitively. */
     private static final String[] RENDER_THREAD_NAMES = {
-            "render thread", "client thread", "client main thread", "sodium", "egl", "gl4es",
-            "zink", "lwjgl", "server thread"
+            // Prioritize Minecraft's actual client/render loop and integrated server.
+            // Do not boost the Android Activity "main" thread or arbitrary driver workers.
+            "render thread", "client thread", "client main thread", "server thread"
     };
 
     private static volatile SchedulingPolicy sActive;
@@ -194,10 +195,12 @@ public final class SchedulingPolicy {
                     continue;
                 }
                 live.add(tid);
-                if (!scanned.add(tid)) continue;
+                if (scanned.contains(tid)) continue;
 
                 String name = readComm(tid);
-                if (name == null || !isRenderThread(name)) continue;
+                if (name == null) continue; // Retry next tick if the thread is still starting.
+                scanned.add(tid);
+                if (!isRenderThread(name)) continue;
                 if (touched.size() >= policy.maxBoostedThreads) continue;
 
                 touched.add(tid);
