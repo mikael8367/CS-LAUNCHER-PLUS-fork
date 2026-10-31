@@ -63,7 +63,9 @@ public final class SchedulingPolicy {
     /** Only TIDs whose priorities were actually raised are kept here. */
     private final Set<Integer> touched = new HashSet<>();
     private long lastThreadScanAt;
+    private final long sessionStartedAt = System.currentTimeMillis();
     private static final long THREAD_RESCAN_MS = 5_000L;
+    private static final long THREAD_DISCOVERY_WINDOW_MS = 30_000L;
     private final List<Runnable> tickListeners = new ArrayList<>();
 
     private volatile boolean shedByThermal;
@@ -173,8 +175,10 @@ public final class SchedulingPolicy {
         @Override public void run() {
             // Discover late-created game threads every second during startup, then back off
             // to a 5-second liveness scan once the render/client thread has been found.
-            if (touched.isEmpty()
-                    || System.currentTimeMillis() - lastThreadScanAt >= THREAD_RESCAN_MS) {
+            long now = System.currentTimeMillis();
+            boolean stillDiscovering = touched.isEmpty()
+                    && now - sessionStartedAt < THREAD_DISCOVERY_WINDOW_MS;
+            if (stillDiscovering || now - lastThreadScanAt >= THREAD_RESCAN_MS) {
                 scanThreads();
                 refreshHintSession();
             }
