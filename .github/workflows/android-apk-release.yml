@@ -1,0 +1,77 @@
+name: Build APK and publish GitHub Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apk-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-release:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android build tools and NDK
+        run: |
+          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" "ndk;27.3.13750724"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build debug APK
+        run: |
+          chmod +x ./gradlew
+          ./gradlew --no-daemon :app_pojavlauncher:assembleDebug
+
+      - name: Verify APK output
+        id: apk
+        shell: bash
+        run: |
+          APK_PATH="$(find app_pojavlauncher/build/outputs/apk/debug -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          if [ -z "$APK_PATH" ]; then
+            echo "Nenhum APK foi encontrado na pasta de saída do build."
+            exit 1
+          fi
+          echo "path=$APK_PATH" >> "$GITHUB_OUTPUT"
+          echo "APK gerado: $APK_PATH"
+          ls -lh "$APK_PATH"
+
+      - name: Publish APK as GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-build-${{ github.run_id }}-${{ github.run_attempt }}
+          name: "CS Launcher Plus - APK #${{ github.run_number }}"
+          body: |
+            APK gerado automaticamente pelo GitHub Actions.
+
+            - Tipo: Debug (assinado com a chave debug padrão do Android)
+            - Commit: ${{ github.sha }}
+            - Execução: #${{ github.run_number }}
+
+            Este é um build de teste, não uma versão estável de produção.
+          files: ${{ steps.apk.outputs.path }}
+          prerelease: true
+          make_latest: false
