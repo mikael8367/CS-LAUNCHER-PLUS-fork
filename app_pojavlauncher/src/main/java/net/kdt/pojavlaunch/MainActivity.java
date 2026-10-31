@@ -122,9 +122,12 @@ public class MainActivity extends BaseActivity implements ControlButtonMenuListe
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // Start device profiling before marking the game active. DeviceCapability deliberately
+        // avoids its EGL probe while a session is active; the old order skipped profiling entirely
+        // on a cold start, leaving the performance policy with unknown RAM/GPU data.
+        net.kdt.pojavlaunch.performance.PerformanceEngine.onSessionCreate(this);
         net.kdt.pojavlaunch.performance.GameSessionState.markActive(this);
         mGameStateController=new net.kdt.pojavlaunch.performance.AndroidGameStateController(this);mGameStateController.loading();
-        net.kdt.pojavlaunch.performance.PerformanceEngine.onSessionCreate(this);
         Tools.MAIN_HANDLER.post(mFirstFrameWatcher);
         if (LauncherPreferences.PREF_GAMEPAD_SDL_PASSTHRU) {
             // TODO: Use lower level HID capture that needs a dialogue box from the user for the
