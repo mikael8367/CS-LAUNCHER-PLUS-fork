@@ -43,8 +43,8 @@ public final class SchedulingPolicy {
 
     /** Thread names worth boosting on a Minecraft client; matched case-insensitively. */
     private static final String[] RENDER_THREAD_NAMES = {
-            "render thread", "client main thread", "main", "sodium", "egl", "gl4es", "zink",
-            "lwjgl", "server thread"
+            "render thread", "client thread", "client main thread", "sodium", "egl", "gl4es",
+            "zink", "lwjgl", "server thread"
     };
 
     private static volatile SchedulingPolicy sActive;
@@ -53,11 +53,16 @@ public final class SchedulingPolicy {
     private final PerformancePolicy policy;
     private final HandlerThread thread;
     private final Handler handler;
+    /** Every live TID is inspected once, not once per second. */
+    private final Set<Integer> scanned = new HashSet<>();
+    /** Only TIDs whose priorities were actually raised are kept here. */
     private final Set<Integer> touched = new HashSet<>();
     private final List<Runnable> tickListeners = new ArrayList<>();
 
     private volatile boolean shedByThermal;
     private android.os.PerformanceHintManager.Session hintSession;
+    /** Last TID set offered to ADPF; prevents reopening the same session every tick. */
+    private int[] hintSessionTids = new int[0];
     private long frameBudgetNanos;
 
 
@@ -84,7 +89,7 @@ public final class SchedulingPolicy {
         s.handler.post(new Runnable() {
             @Override public void run() {
                 s.scanThreads();
-                s.openHintSession();
+                s.refreshHintSession();
                 s.handler.postDelayed(s.tick, TICK_MS);
             }
         });
@@ -97,6 +102,7 @@ public final class SchedulingPolicy {
         try {
             s.handler.removeCallbacksAndMessages(null);
             s.closeHintSession();
+            s.hintSessionTids = new int[0];
             s.thread.quitSafely();
         } catch (Throwable ignored) {
         }
@@ -151,6 +157,7 @@ public final class SchedulingPolicy {
     private final Runnable tick = new Runnable() {
         @Override public void run() {
             scanThreads();
+            refreshHintSession();
             List<Runnable> copy;
             synchronized (tickListeners) {
                 copy = new ArrayList<>(tickListeners);
@@ -176,22 +183,28 @@ public final class SchedulingPolicy {
         try {
             File[] tasks = new File("/proc/self/task").listFiles();
             if (tasks == null) return;
-            int raised = 0;
-            for (File t : tasks) {
+
+            // Keep only IDs that still exist. This also handles TID reuse after a thread exits.
+            Set<Integer> live = new HashSet<>(tasks.length);
+            for (File task : tasks) {
                 int tid;
                 try {
-                    tid = Integer.parseInt(t.getName());
+                    tid = Integer.parseInt(task.getName());
                 } catch (NumberFormatException ignored) {
                     continue;
                 }
-                if (touched.contains(tid)) continue;
+                live.add(tid);
+                if (!scanned.add(tid)) continue;
+
                 String name = readComm(tid);
                 if (name == null || !isRenderThread(name)) continue;
+                if (touched.size() >= policy.maxBoostedThreads) continue;
+
                 touched.add(tid);
-                if (raised >= policy.maxBoostedThreads) continue;
                 applyPriority(tid);
-                raised++;
             }
+            scanned.retainAll(live);
+            touched.retainAll(live);
         } catch (Throwable ignored) {
             // /proc/self/task is readable for our own process, but OEM kernels occasionally deny it.
         }
@@ -241,8 +254,21 @@ public final class SchedulingPolicy {
     // cycle. The system then decides core placement and frequency for that group; the app never asks
     // for a clock directly, which is why this replaces the affinity code it deletes.
 
-    private void openHintSession() {
+    /**
+     * Open/refresh ADPF only when Minecraft render/client threads have been discovered.
+     * The old one-shot call usually captured the Android Activity "main" thread before
+     * Minecraft started, so the scheduler hint never covered the actual game renderer.
+     */
+    private void refreshHintSession() {
         if (!policy.adpfSession || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return;
+
+        int[] tids = boostedThreadIds();
+        if (java.util.Arrays.equals(hintSessionTids, tids)) return;
+
+        closeHintSession();
+        hintSessionTids = tids;
+        if (tids.length == 0) return;
+
         try {
             android.os.PerformanceHintManager mgr = appContext
                     .getSystemService(android.os.PerformanceHintManager.class);
@@ -250,18 +276,9 @@ public final class SchedulingPolicy {
                 note("ADPF manager unavailable on this device");
                 return;
             }
-            int[] tids = boostedThreadIds();
-            if (tids.length == 0) {
-                note("ADPF session skipped: no game threads identified yet");
-                return;
-            }
             frameBudgetNanos = measureFrameBudgetNanos();
-            // Deliberately a target-only session. reportActualWorkDuration() would need the game's real
-            // per-frame duration, and the launcher does not measure the render loop — inventing a number
-            // to feed the scheduler is worse than saying nothing, because the scheduler would then tune
-            // itself around a fiction. The target above is a request, not a promise.
             hintSession = mgr.createHintSession(tids, frameBudgetNanos);
-            note("ADPF hint session opened over " + tids.length + " thread(s) with a "
+            note("ADPF hint session opened over " + tids.length + " game thread(s) with a "
                     + (frameBudgetNanos / 1000L) + " us target");
         } catch (Throwable t) {
             hintSession = null;
@@ -298,10 +315,9 @@ public final class SchedulingPolicy {
     /** The tids the session covers: the game threads this policy actually raised, plus our main. */
     private int[] boostedThreadIds() {
         java.util.List<Integer> ids = new ArrayList<>(touched);
-        int self = Process.myTid();
-        if (!ids.contains(self)) ids.add(self);
         int[] out = new int[ids.size()];
         for (int i = 0; i < out.length; i++) out[i] = ids.get(i);
+        java.util.Arrays.sort(out);
         return out;
     }
 
