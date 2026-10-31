@@ -45,6 +45,10 @@ public final class ThermalGovernor {
     private static volatile float sHeadroom = Float.NaN; // NaN = no signal from this device
     private static volatile long sHeadroomAt;
     private static volatile long sCoolSince;
+    private static final File CPU_PRESSURE_FILE = new File("/proc/pressure/cpu");
+    private static final long PSI_SAMPLE_INTERVAL_MS = 5_000L;
+    private static volatile long sPsiSampledAt;
+    private static volatile boolean sPsiHigh;
     private static volatile boolean sShed;
     private static Runnable sTick;
     private static PowerManager sPowerManager;
@@ -84,8 +88,9 @@ public final class ThermalGovernor {
             }
         };
         SchedulingPolicy.addTickListener(sTick);
-        // First read is immediate so the very first tick has a level, not UNKNOWN.
-        sample(app);
+        // The initial read can touch /proc/pressure/cpu on devices without a thermal HAL.
+        // Queue it on the existing engine thread instead of doing file I/O on the Activity thread.
+        SchedulingPolicy.postToEngine(sTick);
     }
 
     public static void stop() {
@@ -177,7 +182,7 @@ public final class ThermalGovernor {
     /** Pressure-stall average from our own cgroup; -1 when the kernel does not expose it. */
     private static float psiCpuAvg10() {
         try {
-            String line = firstLine(new File("/proc/pressure/cpu"));
+            String line = firstLine(CPU_PRESSURE_FILE);
             if (line == null) return -1f;
             int avgIdx = line.indexOf("avg10=");
             if (avgIdx < 0) return -1f;
@@ -191,7 +196,16 @@ public final class ThermalGovernor {
     }
 
     private static boolean psiSome() {
-        return psiCpuAvg10() > 20f;
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (sPsiSampledAt == 0L || now - sPsiSampledAt >= PSI_SAMPLE_INTERVAL_MS) {
+            synchronized (ThermalGovernor.class) {
+                if (sPsiSampledAt == 0L || now - sPsiSampledAt >= PSI_SAMPLE_INTERVAL_MS) {
+                    sPsiHigh = psiCpuAvg10() > 20f;
+                    sPsiSampledAt = now;
+                }
+            }
+        }
+        return sPsiHigh;
     }
 
     public static int peakLevelOrdinal() {
