@@ -501,11 +501,11 @@ public class JREUtils {
                 || availableDeviceRamMb > 0 && availableDeviceRamMb < 1536
                 || perfPolicy != null && perfPolicy.device.lowMemoryNow;
 
-        // A smaller Xms reduces the heap committed at startup. Xmx is deliberately unchanged:
+        // A smaller Xms reduces the heap committed at startup on memory-constrained phones. Xmx is deliberately unchanged:
         // modded clients still need the maximum the player selected, but the JVM can grow into it
         // only as the workload actually needs it.
         int initialRam = memoryConstrained
-                ? Math.max(256, Math.min(512, effectiveRam / 3))
+                ? Math.max(256, Math.min(384, effectiveRam / 4))
                 : Math.max(256, Math.min(1024, effectiveRam / 2));
         // Round to the nearest 128 MB step so a one-third heap such as 384 MB is not
         // accidentally rounded down to 256 MB and forced to grow through extra GC cycles.
