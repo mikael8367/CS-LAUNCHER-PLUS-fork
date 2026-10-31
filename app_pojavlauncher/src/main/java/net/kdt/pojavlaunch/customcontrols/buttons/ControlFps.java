@@ -69,7 +69,9 @@ public class ControlFps extends ControlButton {
         public void run() {
             sample();
             removeCallbacks(this);
-            postDelayed(this, TICK_INTERVAL_MS);
+            long interval = net.kdt.pojavlaunch.performance.LauncherQuietPolicy.animationsAllowed()
+                    ? TICK_INTERVAL_MS : 1000L;
+            postDelayed(this, interval);
         }
     };
 
@@ -218,7 +220,8 @@ public class ControlFps extends ControlButton {
      * view alpha for the user's opacity setting.
      */
     private void pulse() {
-        if (!MotionSpec.enabled()) return;
+        if (!MotionSpec.enabled()
+                || !net.kdt.pojavlaunch.performance.LauncherQuietPolicy.animationsAllowed()) return;
         cancelPulse();
         mPulseAnimator = ValueAnimator.ofInt(26, 0);
         mPulseAnimator.setDuration(380L);
