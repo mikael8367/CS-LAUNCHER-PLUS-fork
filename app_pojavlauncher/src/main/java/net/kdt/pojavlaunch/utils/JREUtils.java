@@ -495,7 +495,18 @@ public class JREUtils {
                 effectiveRam = biased;
             }
         }
-        int initialRam = Math.max(256, Math.min(1024, effectiveRam / 2));
+        int totalDeviceRamMb = Tools.getTotalDeviceMemory(activity);
+        int availableDeviceRamMb = Tools.getFreeDeviceMemory(activity);
+        boolean memoryConstrained = totalDeviceRamMb > 0 && totalDeviceRamMb <= 4096
+                || availableDeviceRamMb > 0 && availableDeviceRamMb < 1536
+                || perfPolicy != null && perfPolicy.device.lowMemoryNow;
+
+        // A smaller Xms reduces the heap committed at startup. Xmx is deliberately unchanged:
+        // modded clients still need the maximum the player selected, but the JVM can grow into it
+        // only as the workload actually needs it.
+        int initialRam = memoryConstrained
+                ? Math.max(256, Math.min(512, effectiveRam / 3))
+                : Math.max(256, Math.min(1024, effectiveRam / 2));
         initialRam = Math.max(256, (initialRam / 128) * 128);
         userArgs.add("-Xms" + initialRam + "M");
         userArgs.add("-Xmx" + effectiveRam + "M");
