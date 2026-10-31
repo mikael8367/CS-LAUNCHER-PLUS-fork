@@ -218,8 +218,8 @@ public final class PerformancePolicy {
                 || configuredScale <= 0f) {
             configuredScale = 1f;
         }
-        if (mode == PerformanceMode.MAXIMUM) return Math.min(configuredScale, 0.70f);
-        if (mode == PerformanceMode.PERFORMANCE) return Math.min(configuredScale, 0.85f);
+        if (mode == PerformanceMode.MAXIMUM) return Math.min(configuredScale, 0.65f);
+        if (mode == PerformanceMode.PERFORMANCE) return Math.min(configuredScale, 0.80f);
         return configuredScale;
     }
 
