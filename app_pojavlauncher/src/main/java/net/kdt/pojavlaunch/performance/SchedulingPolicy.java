@@ -177,8 +177,8 @@ public final class SchedulingPolicy {
 
     /**
      * One pass over this process's own threads. Only unknown tids are examined and only names that are
-     * clearly render/present/tick are raised, so a mod that opens a hundred worker threads cannot turn
-     * this into a priority storm.
+     * clearly client/render/server loops are raised, so a mod that opens a hundred worker threads
+     * cannot turn this into a priority storm.
      */
     private void scanThreads() {
         try {
@@ -198,13 +198,11 @@ public final class SchedulingPolicy {
                 if (scanned.contains(tid)) continue;
 
                 String name = readComm(tid);
-                if (name == null) continue; // Retry next tick if the thread is still starting.
-                scanned.add(tid);
-                if (!isRenderThread(name)) continue;
+                scanned.add(tid); // Do not retry inaccessible /proc entries on every heartbeat.
+                if (name == null || !isRenderThread(name)) continue;
                 if (touched.size() >= policy.maxBoostedThreads) continue;
 
-                touched.add(tid);
-                applyPriority(tid);
+                if (applyPriority(tid)) touched.add(tid);
             }
             scanned.retainAll(live);
             touched.retainAll(live);
@@ -217,12 +215,14 @@ public final class SchedulingPolicy {
         for (Integer tid : touched) applyPriority(tid);
     }
 
-    private void applyPriority(int tid) {
+    private boolean applyPriority(int tid) {
         int target = shedByThermal ? Process.THREAD_PRIORITY_DEFAULT : policy.threadPriority;
         try {
             Process.setThreadPriority(tid, target);
+            return true;
         } catch (Throwable ignored) {
-            // thread vanished mid-pass, or the OS declined: nothing to recover
+            // Thread vanished mid-pass or the OS declined the request.
+            return false;
         }
     }
 
@@ -315,7 +315,7 @@ public final class SchedulingPolicy {
         return hintSession;
     }
 
-    /** The tids the session covers: the game threads this policy actually raised, plus our main. */
+    /** Only game render/client/server TIDs whose thread-priority request succeeded. */
     private int[] boostedThreadIds() {
         java.util.List<Integer> ids = new ArrayList<>(touched);
         int[] out = new int[ids.size()];
