@@ -90,6 +90,15 @@ public class MinecraftGLSurface extends View implements GrabListener, DirectGame
 
     /* Sensitivity, adjusted according to screen size */
     private final double mSensitivityFactor = (1.4 * (1080f/ Tools.getDisplayMetrics((Activity) getContext()).heightPixels));
+    /** Frozen for this surface so input coordinates match the actual game buffer size. */
+    private final float mRenderScaleFactor = resolveRenderScaleFactor();
+
+    private static float resolveRenderScaleFactor() {
+        float configured = LauncherPreferences.PREF_SCALE_FACTOR;
+        net.kdt.pojavlaunch.performance.PerformancePolicy policy =
+                net.kdt.pojavlaunch.performance.PerformancePolicy.current();
+        return policy == null ? configured : policy.effectiveRenderScale(configured);
+    }
 
     /* Surface ready listener, used by the activity to launch minecraft */
     SurfaceReadyListener mSurfaceReadyListener = null;
@@ -277,7 +286,7 @@ public class MinecraftGLSurface extends View implements GrabListener, DirectGame
 
             // Mouse found
             if(CallbackBridge.isGrabbing()) return false;
-            CallbackBridge.sendCursorPos(   e.getX(i) * LauncherPreferences.PREF_SCALE_FACTOR, e.getY(i) * LauncherPreferences.PREF_SCALE_FACTOR);
+            CallbackBridge.sendCursorPos(   e.getX(i) * mRenderScaleFactor, e.getY(i) * mRenderScaleFactor);
             return true; //mouse event handled successfully
         }
         TouchControllerUtils.processTouchEvent(e, this);
@@ -335,8 +344,8 @@ public class MinecraftGLSurface extends View implements GrabListener, DirectGame
         switch(event.getActionMasked()) {
             case MotionEvent.ACTION_HOVER_MOVE:
             case MotionEvent.ACTION_MOVE:
-                CallbackBridge.mouseX = (event.getX(mouseCursorIndex) * LauncherPreferences.PREF_SCALE_FACTOR);
-                CallbackBridge.mouseY = (event.getY(mouseCursorIndex) * LauncherPreferences.PREF_SCALE_FACTOR);
+                CallbackBridge.mouseX = (event.getX(mouseCursorIndex) * mRenderScaleFactor);
+                CallbackBridge.mouseY = (event.getY(mouseCursorIndex) * mRenderScaleFactor);
                 CallbackBridge.sendCursorPos(CallbackBridge.mouseX, CallbackBridge.mouseY);
                 return true;
             case MotionEvent.ACTION_SCROLL:
@@ -452,8 +461,8 @@ public class MinecraftGLSurface extends View implements GrabListener, DirectGame
         // Use the width and height of the View instead of display dimensions to avoid
         // getting squiched/stretched due to inconsistencies between the layout and
         // screen dimensions.
-        int newWidth = Tools.getDisplayFriendlyRes(getWidth(), LauncherPreferences.PREF_SCALE_FACTOR);
-        int newHeight = Tools.getDisplayFriendlyRes(getHeight(), LauncherPreferences.PREF_SCALE_FACTOR);
+        int newWidth = Tools.getDisplayFriendlyRes(getWidth(), mRenderScaleFactor);
+        int newHeight = Tools.getDisplayFriendlyRes(getHeight(), mRenderScaleFactor);
         if (newHeight < 1 || newWidth < 1) {
             Log.e("MGLSurface", String.format("Impossible resolution : %dx%d", newWidth, newHeight));
             return;
