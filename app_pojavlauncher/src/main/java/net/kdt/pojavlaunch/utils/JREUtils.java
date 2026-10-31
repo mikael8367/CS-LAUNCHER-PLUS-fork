@@ -507,7 +507,12 @@ public class JREUtils {
         int initialRam = memoryConstrained
                 ? Math.max(256, Math.min(512, effectiveRam / 3))
                 : Math.max(256, Math.min(1024, effectiveRam / 2));
-        initialRam = Math.max(256, (initialRam / 128) * 128);
+        // Round to the nearest 128 MB step so a one-third heap such as 384 MB is not
+        // accidentally rounded down to 256 MB and forced to grow through extra GC cycles.
+        initialRam = Math.max(256, memoryConstrained
+                ? ((initialRam + 64) / 128) * 128
+                : (initialRam / 128) * 128);
+        initialRam = Math.min(initialRam, effectiveRam);
         userArgs.add("-Xms" + initialRam + "M");
         userArgs.add("-Xmx" + effectiveRam + "M");
         Log.i("ProfileLaunch", "Effective JVM RAM: -Xms" + initialRam
