@@ -8,9 +8,7 @@ import android.os.HandlerThread;
 import android.os.Process;
 
 import java.io.File;
-import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
@@ -66,7 +64,9 @@ public final class SchedulingPolicy {
     private final long sessionStartedAt = System.currentTimeMillis();
     private static final long THREAD_RESCAN_MS = 5_000L;
     private static final long THREAD_DISCOVERY_WINDOW_MS = 30_000L;
-    private final List<Runnable> tickListeners = new ArrayList<>();
+    /** Listener edits are rare; a volatile snapshot lets the 1 Hz heartbeat iterate without allocating. */
+    private final Object tickListenerLock = new Object();
+    private volatile Runnable[] tickListeners = new Runnable[0];
 
     private volatile boolean shedByThermal;
     private android.os.PerformanceHintManager.Session hintSession;
@@ -137,16 +137,35 @@ public final class SchedulingPolicy {
     public static void addTickListener(Runnable r) {
         SchedulingPolicy s = sActive;
         if (s == null || r == null) return;
-        synchronized (s.tickListeners) {
-            if (!s.tickListeners.contains(r)) s.tickListeners.add(r);
+        synchronized (s.tickListenerLock) {
+            Runnable[] current = s.tickListeners;
+            for (Runnable listener : current) {
+                if (listener == r) return;
+            }
+            Runnable[] next = java.util.Arrays.copyOf(current, current.length + 1);
+            next[current.length] = r;
+            s.tickListeners = next;
         }
     }
 
     public static void removeTickListener(Runnable r) {
         SchedulingPolicy s = sActive;
         if (s == null || r == null) return;
-        synchronized (s.tickListeners) {
-            s.tickListeners.remove(r);
+        synchronized (s.tickListenerLock) {
+            Runnable[] current = s.tickListeners;
+            int removeAt = -1;
+            for (int i = 0; i < current.length; i++) {
+                if (current[i] == r) {
+                    removeAt = i;
+                    break;
+                }
+            }
+            if (removeAt < 0) return;
+            Runnable[] next = new Runnable[current.length - 1];
+            System.arraycopy(current, 0, next, 0, removeAt);
+            System.arraycopy(current, removeAt + 1, next, removeAt,
+                    current.length - removeAt - 1);
+            s.tickListeners = next;
         }
     }
 
@@ -182,13 +201,11 @@ public final class SchedulingPolicy {
                 scanThreads();
                 refreshHintSession();
             }
-            List<Runnable> copy;
-            synchronized (tickListeners) {
-                copy = new ArrayList<>(tickListeners);
-            }
-            for (int i = 0; i < copy.size(); i++) {
+            // The snapshot is replaced only when listeners attach/detach, not on every tick.
+            Runnable[] listeners = tickListeners;
+            for (int i = 0; i < listeners.length; i++) {
                 try {
-                    copy.get(i).run();
+                    listeners[i].run();
                 } catch (Throwable ignored) {
                 }
             }
@@ -342,9 +359,9 @@ public final class SchedulingPolicy {
 
     /** Only game render/client/server TIDs whose thread-priority request succeeded. */
     private int[] boostedThreadIds() {
-        java.util.List<Integer> ids = new ArrayList<>(touched);
-        int[] out = new int[ids.size()];
-        for (int i = 0; i < out.length; i++) out[i] = ids.get(i);
+        int[] out = new int[touched.size()];
+        int index = 0;
+        for (Integer tid : touched) out[index++] = tid;
         java.util.Arrays.sort(out);
         return out;
     }
