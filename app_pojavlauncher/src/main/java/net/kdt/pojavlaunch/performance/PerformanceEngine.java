@@ -51,7 +51,9 @@ public final class PerformanceEngine {
         if (policy == null) {
             policy = PerformancePolicy.resolve(activity, LauncherPreferences.DEFAULT_PREF, null);
         }
-        SchedulingPolicy.begin(activity.getApplicationContext(), policy);
+        // Pass the Activity so ADPF can read the actual panel modes. The scheduler separately
+        // retains the Application context for system services and background work.
+        SchedulingPolicy.begin(activity, policy);
         ThermalGovernor.start(activity.getApplicationContext(), policy);
         FrameSampleCollector.begin(activity.getApplicationContext(),
                 Tools.LOCAL_RENDERER, policy.game == null ? null : policy.game.versionId);
