@@ -206,6 +206,23 @@ public final class PerformancePolicy {
         return mode == PerformanceMode.NORMAL;
     }
 
+    /**
+     * Conservative GPU workload reduction for the two boost profiles.
+     *
+     * <p>The configured player scale remains the upper bound: an existing lower
+     * resolution is never raised. These are render-buffer dimensions, not a
+     * Minecraft FPS cap. The pixel workload is approximately scale squared.
+     */
+    public float effectiveRenderScale(float configuredScale) {
+        if (Float.isNaN(configuredScale) || Float.isInfinite(configuredScale)
+                || configuredScale <= 0f) {
+            configuredScale = 1f;
+        }
+        if (mode == PerformanceMode.MAXIMUM) return Math.min(configuredScale, 0.70f);
+        if (mode == PerformanceMode.PERFORMANCE) return Math.min(configuredScale, 0.85f);
+        return configuredScale;
+    }
+
     /** Short, human-readable account of exactly what this launch will do. Used by the settings card. */
     public String describe() {
         StringBuilder b = new StringBuilder();
