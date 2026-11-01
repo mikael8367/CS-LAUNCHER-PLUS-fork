@@ -1,0 +1,114 @@
+name: Build debug APK for performance branch
+
+on:
+  push:
+    branches:
+      - perf/low-memory-fps
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-debug-apk-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and publish debug APK artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK and install required packages
+        shell: bash
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
+          fi
+          if [ -z "$SDKMANAGER" ] || [ ! -x "$SDKMANAGER" ]; then
+            echo "Android sdkmanager was not found under ANDROID_HOME=$ANDROID_HOME"
+            exit 1
+          fi
+          set +o pipefail
+          yes | "$SDKMANAGER" --licenses >/dev/null
+          set -o pipefail
+          "$SDKMANAGER" "platform-tools" "platforms;android-34" "build-tools;34.0.0" "ndk;27.3.13750724"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Create temporary Firebase config for debug build
+        shell: bash
+        run: |
+          mkdir -p app_pojavlauncher/src/debug
+          cat > app_pojavlauncher/src/debug/google-services.json <<'JSON'
+          {
+            "project_info": {
+              "project_number": "123456789012",
+              "project_id": "cslauncher-compile-check",
+              "firebase_url": "https://cslauncher-compile-check-default-rtdb.firebaseio.com",
+              "storage_bucket": "cslauncher-compile-check.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:123456789012:android:0000000000000000",
+                  "android_client_info": {
+                    "package_name": "com.cslaucher.plus.debug"
+                  }
+                },
+                "oauth_client": [],
+                "api_key": [
+                  {
+                    "current_key": "compile-check-placeholder-key"
+                  }
+                ],
+                "services": {}
+              }
+            ],
+            "configuration_version": "1"
+          }
+          JSON
+
+      - name: Build debug APK
+        run: |
+          chmod +x ./gradlew
+          ./gradlew --no-daemon --stacktrace :app_pojavlauncher:assembleDebug
+
+      - name: Verify APK output
+        id: apk
+        shell: bash
+        run: |
+          APK_PATH="$(find app_pojavlauncher/build/outputs/apk/debug -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          if [ -z "$APK_PATH" ]; then
+            echo "No APK found in the expected output directory."
+            exit 1
+          fi
+          mkdir -p dist
+          cp "$APK_PATH" dist/CS-Launcher-Plus-debug.apk
+          ls -lh dist/CS-Launcher-Plus-debug.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CS-Launcher-Plus-debug
+          path: dist/CS-Launcher-Plus-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Remove temporary Firebase config
+        if: always()
+        run: rm -f app_pojavlauncher/src/debug/google-services.json
