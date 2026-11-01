@@ -52,13 +52,42 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Create temporary Firebase config for compile check
+        shell: bash
+        run: |
+          mkdir -p app_pojavlauncher/src/debug
+          cat > app_pojavlauncher/src/debug/google-services.json <<'JSON'
+          {
+            "project_info": {
+              "project_number": "123456789012",
+              "project_id": "cslauncher-compile-check",
+              "storage_bucket": "cslauncher-compile-check.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:123456789012:android:0000000000000000",
+                  "android_client_info": {
+                    "package_name": "com.cslaucher.plus.debug"
+                  }
+                },
+                "oauth_client": [],
+                "api_key": [
+                  {
+                    "current_key": "compile-check-placeholder-key"
+                  }
+                ],
+                "services": {}
+              }
+            ],
+            "configuration_version": "1"
+          }
+          JSON
+
       - name: Compile project sources without packaging an APK
         run: |
           chmod +x ./gradlew
-          # Firebase configuration is intentionally not committed to this public repository.
-          # Exclude only its resource-generation task; Java/resource compilation still runs.
           ./gradlew --no-daemon --stacktrace \
-            -x :app_pojavlauncher:processDebugGoogleServices \
             :app_pojavlauncher:compileDebugSources \
             :forge_installer:compileJava \
             :arc_dns_injector:compileJava \
@@ -66,3 +95,7 @@ jobs:
             :jre_lwjgl3glfw:lwjgl-3.3.3:compileJava \
             :jre_lwjgl3glfw:lwjgl-3.4.1:compileJava \
             :jre_lwjgl3glfw:lwjgl-3.4.2:compileJava
+
+      - name: Remove temporary Firebase config
+        if: always()
+        run: rm -f app_pojavlauncher/src/debug/google-services.json
