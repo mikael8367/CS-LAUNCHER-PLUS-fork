@@ -55,8 +55,12 @@ public final class PerformanceEngine {
         // retains the Application context for system services and background work.
         SchedulingPolicy.begin(activity, policy);
         ThermalGovernor.start(activity.getApplicationContext(), policy);
-        FrameSampleCollector.begin(activity.getApplicationContext(),
-                Tools.LOCAL_RENDERER, policy.game == null ? null : policy.game.versionId);
+        // The first Activity resume can precede the actual Minecraft launch snapshot.
+        // Do not record launcher/preparation frames as if they belonged to a game session.
+        if (policy.game != null) {
+            FrameSampleCollector.begin(activity.getApplicationContext(),
+                    Tools.LOCAL_RENDERER, policy.game.versionId);
+        }
     }
 
     /** Game backgrounded: release every request. Nothing is held while the user is not looking. */
