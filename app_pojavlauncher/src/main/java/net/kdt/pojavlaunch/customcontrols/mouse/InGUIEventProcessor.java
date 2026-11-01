@@ -63,7 +63,8 @@ public class InGUIEventProcessor implements TouchEventProcessor {
 
                         if(!mIsMouseDown) {
                             if(!hasGestureStarted()) setGestureStart(motionEvent);
-                            if(!LeftClickGesture.isFingerStill(mStartX, mStartY, FINGER_STILL_THRESHOLD))
+                            if(!LeftClickGesture.isFingerStill(mStartX, mStartY,
+                                    FINGER_STILL_THRESHOLD * mCoordinateScaleFactor))
                                 enableMouse();
                         }
 
