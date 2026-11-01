@@ -61,6 +61,7 @@ jobs:
             "project_info": {
               "project_number": "123456789012",
               "project_id": "cslauncher-compile-check",
+              "firebase_url": "https://cslauncher-compile-check-default-rtdb.firebaseio.com",
               "storage_bucket": "cslauncher-compile-check.appspot.com"
             },
             "client": [
