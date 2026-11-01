@@ -8,6 +8,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -106,7 +107,13 @@ public final class SessionStats {
     private static JSONArray readEntries(File file) {
         JSONArray entries = new JSONArray();
         if (file == null || !file.isFile()) return entries;
-        String raw = Tools.read(file);
+        final String raw;
+        try {
+            raw = Tools.read(file);
+        } catch (IOException ignored) {
+            // A stats read failure must not affect launcher settings or startup.
+            return entries;
+        }
         if (raw == null || raw.trim().isEmpty()) return entries;
 
         try {
