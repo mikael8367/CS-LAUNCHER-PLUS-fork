@@ -55,7 +55,10 @@ jobs:
       - name: Compile project sources without packaging an APK
         run: |
           chmod +x ./gradlew
+          # Firebase configuration is intentionally not committed to this public repository.
+          # Exclude only its resource-generation task; Java/resource compilation still runs.
           ./gradlew --no-daemon --stacktrace \
+            -x :app_pojavlauncher:processDebugGoogleServices \
             :app_pojavlauncher:compileDebugSources \
             :forge_installer:compileJava \
             :arc_dns_injector:compileJava \
