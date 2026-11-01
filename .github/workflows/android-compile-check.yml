@@ -42,7 +42,11 @@ jobs:
             echo "Android sdkmanager was not found under ANDROID_HOME=$ANDROID_HOME"
             exit 1
           fi
+          # sdkmanager exits after accepting all licenses; with pipefail disabled for
+          # this pipeline, the expected SIGPIPE from 'yes' does not fail the setup step.
+          set +o pipefail
           yes | "$SDKMANAGER" --licenses >/dev/null
+          set -o pipefail
           "$SDKMANAGER" "platform-tools" "platforms;android-34" "build-tools;34.0.0" "ndk;27.3.13750724"
 
       - name: Set up Gradle
