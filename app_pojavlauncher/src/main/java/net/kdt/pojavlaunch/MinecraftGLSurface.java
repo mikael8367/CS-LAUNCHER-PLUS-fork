@@ -109,7 +109,7 @@ public class MinecraftGLSurface extends View implements GrabListener, DirectGame
     String TAG = "MinecraftGLSurface";
 
     private final InGameEventProcessor mIngameProcessor = new InGameEventProcessor(mSensitivityFactor);
-    private final InGUIEventProcessor mInGUIProcessor = new InGUIEventProcessor();
+    private final InGUIEventProcessor mInGUIProcessor = new InGUIEventProcessor(mRenderScaleFactor);
     private TouchEventProcessor mCurrentTouchProcessor = mInGUIProcessor;
     private AndroidPointerCapture mPointerCapture;
     private boolean mLastGrabState = false;

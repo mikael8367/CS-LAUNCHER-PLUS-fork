@@ -163,11 +163,11 @@ public final class PerformancePolicy {
         boolean memoryConstrained = device.lowMemoryNow
                 || (device.totalRamMb > 0 && device.totalRamMb <= 4096)
                 || (device.availRamMb > 0 && device.availRamMb < 1536);
-        if (!b.experimentalJvmFlags || memoryConstrained) {
-            bias = 0; // never expand the user's heap when Android needs the remaining RAM
+        if (!b.experimentalJvmFlags || memoryConstrained || device.partial) {
+            bias = 0; // incomplete device data is not evidence that extra heap is safe
         }
-        if (memoryConstrained && b.experimentalJvmFlags) {
-            b.unavailable.add("automatic heap expansion skipped to preserve Android memory headroom");
+        if ((memoryConstrained || device.partial) && b.experimentalJvmFlags) {
+            b.unavailable.add("automatic heap expansion skipped until device memory/capability data is safe");
         }
         int wanted = base + (base * bias) / 100;
         int avail = device.availRamMb > 0 ? (int) (device.availRamMb * 0.55f) : Integer.MAX_VALUE;

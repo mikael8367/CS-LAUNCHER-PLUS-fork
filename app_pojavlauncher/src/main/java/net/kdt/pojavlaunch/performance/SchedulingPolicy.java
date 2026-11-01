@@ -8,8 +8,10 @@ import android.os.HandlerThread;
 import android.os.Process;
 
 import java.io.File;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -60,6 +62,9 @@ public final class SchedulingPolicy {
     private final Set<Integer> liveTids = new HashSet<>();
     /** Only TIDs whose priorities were actually raised are kept here. */
     private final Set<Integer> touched = new HashSet<>();
+    /** Original OS priorities, retained until the session ends so every boost can be undone. */
+    private final Map<Integer, Integer> originalPriorities = new HashMap<>();
+    private volatile boolean stopping;
     private long lastThreadScanAt;
     private final long sessionStartedAt = System.currentTimeMillis();
     private static final long THREAD_RESCAN_MS = 5_000L;
@@ -116,12 +121,22 @@ public final class SchedulingPolicy {
         SchedulingPolicy s = sActive;
         sActive = null;
         if (s == null) return;
+        s.stopping = true;
         try {
             s.handler.removeCallbacksAndMessages(null);
-            s.closeHintSession();
-            s.hintSessionTids = new int[0];
-            s.thread.quitSafely();
+            Runnable cleanup = new Runnable() {
+                @Override public void run() {
+                    s.closeHintSession();
+                    s.hintSessionTids = new int[0];
+                    s.restorePriorities();
+                    s.thread.quitSafely();
+                }
+            };
+            if (!s.handler.post(cleanup)) cleanup.run();
         } catch (Throwable ignored) {
+            // Best effort fallback if the engine looper has already stopped.
+            s.restorePriorities();
+            try { s.thread.quitSafely(); } catch (Throwable ignoredAgain) {}
         }
     }
 
@@ -136,7 +151,7 @@ public final class SchedulingPolicy {
      */
     public static boolean postToEngine(Runnable task) {
         SchedulingPolicy s = sActive;
-        return s != null && task != null && s.handler.post(task);
+        return s != null && !s.stopping && task != null && s.handler.post(task);
     }
 
     /**
@@ -201,6 +216,7 @@ public final class SchedulingPolicy {
 
     private final Runnable tick = new Runnable() {
         @Override public void run() {
+            if (stopping) return;
             // Discover late-created game threads every second during startup, then back off
             // to a 5-second liveness scan once the render/client thread has been found.
             long now = System.currentTimeMillis();
@@ -249,14 +265,26 @@ public final class SchedulingPolicy {
                 if (scanned.contains(tid)) continue;
 
                 String name = readComm(tid);
-                scanned.add(tid); // Do not retry inaccessible /proc entries on every heartbeat.
-                if (name == null || !isRenderThread(name)) continue;
+                if (name == null) {
+                    scanned.add(tid); // Do not retry inaccessible /proc entries on every heartbeat.
+                    continue;
+                }
+                if (!isRenderThread(name)) {
+                    scanned.add(tid);
+                    continue;
+                }
+                // Keep eligible threads unscanned while all slots are occupied. A later
+                // rescan can then pick them up if an already-boosted thread exits.
                 if (touched.size() >= policy.maxBoostedThreads) continue;
 
-                if (applyPriority(tid)) touched.add(tid);
+                if (applyPriority(tid)) {
+                    touched.add(tid);
+                    scanned.add(tid);
+                }
             }
             scanned.retainAll(liveTids);
             touched.retainAll(liveTids);
+            originalPriorities.keySet().retainAll(liveTids);
         } catch (Throwable ignored) {
             // /proc/self/task is readable for our own process, but OEM kernels occasionally deny it.
         }
@@ -268,13 +296,37 @@ public final class SchedulingPolicy {
 
     private boolean applyPriority(int tid) {
         int target = shedByThermal ? Process.THREAD_PRIORITY_DEFAULT : policy.threadPriority;
+        boolean capturedOriginal = false;
+        if (!originalPriorities.containsKey(tid)) {
+            try {
+                originalPriorities.put(tid, Process.getThreadPriority(tid));
+                capturedOriginal = true;
+            } catch (Throwable ignored) {
+                // Without the original value we cannot safely promise to undo the boost.
+                return false;
+            }
+        }
         try {
             Process.setThreadPriority(tid, target);
             return true;
         } catch (Throwable ignored) {
+            if (capturedOriginal) originalPriorities.remove(tid);
             // Thread vanished mid-pass or the OS declined the request.
             return false;
         }
+    }
+
+    /** Restore every still-live game thread to the priority it had before this engine touched it. */
+    private void restorePriorities() {
+        for (Map.Entry<Integer, Integer> entry : originalPriorities.entrySet()) {
+            try {
+                Process.setThreadPriority(entry.getKey(), entry.getValue());
+            } catch (Throwable ignored) {
+                // The thread may have exited during shutdown.
+            }
+        }
+        originalPriorities.clear();
+        touched.clear();
     }
 
     private static boolean isRenderThread(String comm) {

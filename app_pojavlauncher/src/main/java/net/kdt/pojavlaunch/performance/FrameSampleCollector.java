@@ -28,8 +28,6 @@ import java.util.Locale;
 public final class FrameSampleCollector {
 
     private static final int WINDOW_SECONDS = 3600;
-    private static final long MIN_VALID_FPS = 1L;
-
     /**
      * Tag for the per-second frame trace a benchmark harness reads. It exists so an old build and a new
      * build can be compared from the *same* measurement (frames counted at the swap boundary by the
@@ -154,19 +152,20 @@ public final class FrameSampleCollector {
         if (s.lastPresents >= 0L) {
             long delta = presents - s.lastPresents;
             long elapsed = Math.max(1L, now - s.lastSampleAt);
-            if (delta > 0L) {
-                int fps = (int) Math.min(1000L, (delta * 1000L) / elapsed);
-                if (fps >= MIN_VALID_FPS) {
-                    synchronized (s.samples) {
-                        s.samples[s.nextSampleIndex] = fps;
-                        s.nextSampleIndex = (s.nextSampleIndex + 1) % WINDOW_SECONDS;
-                        if (s.sampleCount < WINDOW_SECONDS) s.sampleCount++;
-                    }
-                    if (s.traceForHarness) {
-                        android.util.Log.d(HARNESS_TAG, "t=" + ((now - s.startedAt) / 1000L)
-                                + "s fps=" + fps + " presents=" + presents
-                                + " mode=" + s.modeKey + " renderer=" + s.rendererId);
-                    }
+            // A zero delta is a real frozen second, not a missing sample. Preserve it so
+            // median/worst-second statistics cannot hide stalls by silently dropping them.
+            if (delta >= 0L) {
+                int fps = delta == 0L ? 0
+                        : (int) Math.min(1000L, (delta * 1000L) / elapsed);
+                synchronized (s.samples) {
+                    s.samples[s.nextSampleIndex] = fps;
+                    s.nextSampleIndex = (s.nextSampleIndex + 1) % WINDOW_SECONDS;
+                    if (s.sampleCount < WINDOW_SECONDS) s.sampleCount++;
+                }
+                if (s.traceForHarness) {
+                    android.util.Log.d(HARNESS_TAG, "t=" + ((now - s.startedAt) / 1000L)
+                            + "s fps=" + fps + " presents=" + presents
+                            + " mode=" + s.modeKey + " renderer=" + s.rendererId);
                 }
             }
         }

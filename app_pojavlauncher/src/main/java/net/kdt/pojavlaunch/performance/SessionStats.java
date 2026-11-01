@@ -84,26 +84,75 @@ public final class SessionStats {
             File out = file(ctx);
             File parent = out.getParentFile();
             if (parent != null) parent.mkdirs();
-            List<String> lines = new ArrayList<>();
-            if (out.isFile()) {
-                String raw = Tools.read(out);
-                for (String line : raw.split("\n")) {
-                    if (!line.trim().isEmpty()) lines.add(line.trim());
-                }
+            JSONArray existing = readEntries(out);
+            JSONArray updated = new JSONArray();
+            // Reserve one slot for the new record and retain only the newest valid objects.
+            int from = Math.max(0, existing.length() - (CAP - 1));
+            for (int i = from; i < existing.length(); i++) {
+                JSONObject item = existing.optJSONObject(i);
+                if (item != null) updated.put(item);
             }
-            lines.add(e.toJson());
-            // newest kept; a rolling window is all the recommendation needs
-            int from = Math.max(0, lines.size() - CAP);
-            StringBuilder b = new StringBuilder("[\n");
-            for (int i = from; i < lines.size(); i++) {
-                if (i > from) b.append(",\n");
-                b.append(lines.get(i));
-            }
-            b.append("\n]");
-            Tools.write(out.getAbsolutePath(), b.toString());
+            updated.put(new JSONObject(e.toJson()));
+            Tools.write(out.getAbsolutePath(), updated.toString());
         } catch (Throwable ignored) {
             // stats are diagnostics; they must never break a shutdown path
         }
+    }
+
+    /**
+     * Read the current JSON array. Older builds could leave a malformed line-wrapped array;
+     * when that happens, recover complete JSON objects instead of discarding all past sessions.
+     */
+    private static JSONArray readEntries(File file) {
+        JSONArray entries = new JSONArray();
+        if (file == null || !file.isFile()) return entries;
+        String raw = Tools.read(file);
+        if (raw == null || raw.trim().isEmpty()) return entries;
+
+        try {
+            JSONArray parsed = new JSONArray(raw);
+            for (int i = 0; i < parsed.length(); i++) {
+                JSONObject item = parsed.optJSONObject(i);
+                if (item != null) entries.put(item);
+            }
+            return entries;
+        } catch (Throwable ignored) {
+            // Recover valid records from the malformed array written by older versions.
+        }
+
+        int objectStart = -1;
+        int depth = 0;
+        boolean inString = false;
+        boolean escaped = false;
+        for (int i = 0; i < raw.length(); i++) {
+            char c = raw.charAt(i);
+            if (objectStart < 0) {
+                if (c == '{') {
+                    objectStart = i;
+                    depth = 1;
+                    inString = false;
+                    escaped = false;
+                }
+                continue;
+            }
+            if (inString) {
+                if (escaped) escaped = false;
+                else if (c == '\\') escaped = true;
+                else if (c == '"') inString = false;
+                continue;
+            }
+            if (c == '"') inString = true;
+            else if (c == '{') depth++;
+            else if (c == '}' && --depth == 0) {
+                try {
+                    entries.put(new JSONObject(raw.substring(objectStart, i + 1)));
+                } catch (Throwable ignored) {
+                    // Skip a damaged record but keep other complete records.
+                }
+                objectStart = -1;
+            }
+        }
+        return entries;
     }
 
     /** Median of the recorded medians per renderer — enough to compare two options, not to rank brands. */

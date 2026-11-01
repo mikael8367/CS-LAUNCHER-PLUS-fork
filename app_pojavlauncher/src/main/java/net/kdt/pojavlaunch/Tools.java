@@ -427,6 +427,11 @@ public final class Tools {
         }
 
 
+        // onResume may have started the monitor before this launch's real snapshot existed.
+        // Rebind scheduler/thermal/statistics to the just-frozen game-specific policy.
+        net.kdt.pojavlaunch.performance.PerformanceEngine.onBackground(activity);
+        net.kdt.pojavlaunch.performance.PerformanceEngine.onResume(activity);
+
         JMinecraftVersionList.Version versionInfo = Tools.getVersionInfo(versionId);
 
 

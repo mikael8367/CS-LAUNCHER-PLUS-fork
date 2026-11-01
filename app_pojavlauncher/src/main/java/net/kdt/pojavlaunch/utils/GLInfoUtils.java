@@ -133,7 +133,7 @@ public class GLInfoUtils {
      * the renderer and the major GLES version
      * @return the info
      */
-    public static GLInfo getGlInfo() {
+    public static synchronized GLInfo getGlInfo() {
         if(info != null) return info;
         Log.i("GLInfoUtils", "Querying graphics device info...");
         boolean infoQueryResult = false;
