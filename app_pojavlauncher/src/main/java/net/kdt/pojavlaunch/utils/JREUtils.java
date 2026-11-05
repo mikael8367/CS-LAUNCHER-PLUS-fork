@@ -636,6 +636,9 @@ public class JREUtils {
         ArrayList<String> overridableArguments = new ArrayList<>(Arrays.asList(
                 "-Djava.home=" + runtimeHome,
                 "-Djava.io.tmpdir=" + Tools.DIR_CACHE.getAbsolutePath(),
+                // JNA extracts native helpers to jna.tmpdir. Keep them in the app-private cache:
+                // Android linker namespaces reject dlopen() from shared external storage.
+                "-Djna.tmpdir=" + Tools.DIR_CACHE.getAbsolutePath(),
                 "-Djna.boot.library.path=" + NATIVE_LIB_DIR,
                 "-Duser.home=" + Tools.DIR_GAME_HOME,
                 "-Duser.language=" + System.getProperty("user.language"),
